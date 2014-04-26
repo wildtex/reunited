@@ -2,15 +2,15 @@
  * @version $Id$
  * @copyright 2014 wildtex @ github
  */
-#include <stdio.h>          /* stdin, printf, and fgets */
-#include <string.h>         /* string functions */
-#include <stdlib.h>         /* malloc */
-#include <time.h>           /* nanosleep */
-#include <sys/stat.h>       /* stat */
-#include <unistd.h>         /* getuid */
-#include <pwd.h>            /* getpwnam */
-#include <signal.h>         /* signal capture */
-#include "../include/config.h" /* config file tools */
+#include <stdio.h>     /* stdin, printf, and fgets */
+#include <string.h>    /* string functions */
+#include <stdlib.h>    /* malloc */
+#include <time.h>      /* nanosleep */
+#include <sys/stat.h>  /* stat */
+#include <unistd.h>    /* getuid */
+#include <pwd.h>       /* getpwnam */
+#include <signal.h>    /* signal capture */
+#include "config.h"    /* config file tools */
 
 #define CONFIG_FILE "/etc/reunited.conf"
 

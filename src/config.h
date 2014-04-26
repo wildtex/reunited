@@ -27,6 +27,7 @@ struct reunitedConfig {
 	char *workspace;
 	char *project;
 	char *logfile;
+	char *loggingLevel;
 	int loggingEnabled;
 	int syncTargetCount;
 	struct syncTarget *syncTargets;
@@ -118,6 +119,11 @@ int buildConfig(const char *configFileName, struct reunitedConfig *configuration
 		// look for logfile
 		if (strncmp("logfile", configLine, 7) == 0) {
 			configuration->logfile = getConfigValue(configLine);
+		}
+
+		// look for logging-level
+		if (strncmp("logging-level", configLine, 13) == 0) {
+			configuration->loggingLevel = getConfigValue(configLine);
 		}
 
 		// look for logging-enabled
