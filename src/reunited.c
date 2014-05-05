@@ -2,120 +2,21 @@
  * @version $Id$
  * @copyright 2014 wildtex @ github
  */
-#include <stdio.h>     /* stdin, printf, and fgets */
-#include <string.h>    /* string functions */
-#include <stdlib.h>    /* malloc */
-#include <time.h>      /* nanosleep */
-#include <sys/stat.h>  /* stat */
-#include <unistd.h>    /* getuid */
-#include <pwd.h>       /* getpwnam */
-#include <signal.h>    /* signal capture */
-#include "config.h"    /* config file tools */
+#include <stdio.h>       /* stdin, printf, and fgets */
+#include <string.h>      /* string functions */
+#include <stdlib.h>      /* malloc */
+#include <time.h>        /* nanosleep */
+#include <sys/stat.h>    /* stat */
+#include <unistd.h>      /* getuid, read, write */
+#include <pwd.h>         /* getpwnam */
+#include <signal.h>      /* signal capture */
+#include <errno.h>       /* error defs */
+#include <dirent.h>      /* dir tools */
+#include <limits.h>      /* file sys size defs */
+#include "config.h"      /* config file tools */
+#include "fileActions.h" /* file manipulation */
 
 #define CONFIG_FILE "/etc/reunited.conf"
-
-/**
- * @todo  ####  IMPROVEMENTS NEEDED ASAP   ####
- *
- * 1. recursive copying for files
- * 2. configurable external conf file
- *    a. build config file - COMPLETE
- *    b. build parsing library - COMPLETE
- *    c. cut over to parsing library - COMPLETE
- * 3. Implement sub-pattern ignoring feature
- * 4. hashing and logging of changes for package building
- * 5. add daemonization and /var/log/ output
- * 6. line arguments and help info
- * 7. replace change source file with inotify
- * 8. merge branchpush and do full sync on startup
- * 9. create init.d service start/stop scripts
- */
-
-
-/**
- * Get last modified timestamp of a file
- * @param  path full path of file to stat
- * @return      modified unixtime
- */
-int getModifiedUnixtime(const char *path) {
-	struct stat attr;
-	stat(path, &attr);
-	return attr.st_mtime;
-}
-
-/**
- * Perform file copy
- * @param  sourcePath source file path
- * @param  destPath   destination file path
- * @return
- */
-int copyFile(const char *sourcePath, const char *destPath)
-{
-	FILE  *sourceFile, *destFile;
-	int a;
-
-	if (!(sourceFile = fopen(sourcePath, "rb"))) {
-		return -1;
-	}
-
-	if (!(destFile = fopen(destPath, "wb"))) {
-		fclose(sourceFile);
-		return -1;
-	}
-
-	while(1) {
-		a  =  fgetc(sourceFile);
-		if(!feof(sourceFile)) {
-			fputc(a, destFile);
-		}
-		else {
-			break;
-		}
-	}
-
-	fclose(destFile);
-	fclose(sourceFile);
-
-	// change ownership to web user
- 	struct passwd *webUser = getpwnam("www-data");
-	chown(destPath, webUser->pw_uid, webUser->pw_gid);
-
-	return  0;
-}
-
-/**
- * Replace remote root path with local root path
- * 
- * @param  rawSource full remote root file and path
- * @return string         localized root file and path
- */
-char *getSourceAsLocal(const char *rawSource)
-{
-	char *sourcePath = 0;
-	char *stripped;
-
-	// @todo replace these as configurable or autodetecing properties
-	char remoteWorkspace[21] = "/Volumes/vmWorkspace";
-	char localWorkspace[25] = "/home/jsenator/Workspace";
-	
-	stripped = (char *)calloc((strlen(rawSource) - strlen(remoteWorkspace)) + 1, sizeof(char));
-	sourcePath  = (char *)calloc((strlen(rawSource) + strlen(localWorkspace) + 1) - strlen(remoteWorkspace), sizeof(char));
-
-	if (strstr(rawSource, remoteWorkspace) != NULL) {
-		memmove(stripped, rawSource + strlen(remoteWorkspace), (strlen(rawSource) - strlen(remoteWorkspace)));
-		strcpy(sourcePath, localWorkspace);
-		strcat(sourcePath, stripped);
-		sourcePath[strlen(stripped) + strlen(localWorkspace)] = '\0';
-	}
-	else {
-		strcpy(sourcePath, rawSource);
-		sourcePath[strlen(rawSource)] = '\0';
-	}
-
-	free(stripped);
-
-	return sourcePath;
-}
 
 /**
  * Loop through log rows and perform processing actions
@@ -132,7 +33,7 @@ void processLogItems(char *logContent, const struct reunitedConfig configuration
 	logToken = (char *)malloc(strlen(logContent) + 1);
    
 	for (logToken = strtok(logContent, "\n"); logToken != NULL; logToken = strtok(NULL, "\n")) {
-		char *sourcePath = getSourceAsLocal(logToken);
+		char *sourcePath = getSourceAsLocal(logToken, configuration);
 
 		i = 0;
 		foundPath = 0;
@@ -184,9 +85,9 @@ int main()
 	long lastModified = (long)malloc(sizeof(long));
 	long lastChecked = (long)malloc(sizeof(long));
 
-	struct timespec t1;
-	t1.tv_sec = 0;
-	t1.tv_nsec = 500000000L;
+	struct timespec sleepTime;
+	sleepTime.tv_sec = 0;
+	sleepTime.tv_nsec = 500000000L;
 	// or pass in like: 
 	// <method>((struct timespec[]){{0, 500000000}});
 
@@ -201,9 +102,10 @@ int main()
 			lastModified = lastChecked;
 			// open file
 			FILE *autolog;
-			if (!(autolog = fopen(log, "r+"))) {
-				printf("Unable to open source log\n");
-				return 0;
+			if (!(autolog = fopen(log, "r"))) {
+				fprintf(stderr, "Unable to open source log '%s': %s\n",
+					log, strerror(errno));
+				exit (EXIT_FAILURE);
 			}
 
 			// go to end of file
@@ -226,11 +128,18 @@ int main()
 				// terminate string properly
 				logContent[fsize] = '\0';
 
-				// reopen log and reset it
+				// close log
 				if (autolog) {
 					fclose(autolog);
 				}
+
+				// empty the log
 				autolog = fopen(log, "w");
+
+				// free log for new entries
+				if (autolog) {
+					fclose(autolog);
+				}
 
 				// print stats
 				printf("Found content: file size: %d last modified: %d\n", (int)fsize, (int)lastModified);
@@ -239,10 +148,11 @@ int main()
 				processLogItems(logContent, configuration);
 				
 			}
-
-			// close file
-			if (autolog) {
-				fclose(autolog);
+			else {
+				// close file since no content
+				if (autolog) {
+					fclose(autolog);
+				}
 			}
 
 			// flush buffer
@@ -255,7 +165,7 @@ int main()
 		}
 
 		// sleep for half a second
-		nanosleep(&t1, NULL);
+		nanosleep(&sleepTime, NULL);
 	}
 
 	return 0;
